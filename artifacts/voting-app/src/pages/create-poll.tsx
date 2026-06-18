@@ -109,7 +109,7 @@ export default function CreatePoll() {
                 />
 
                 <div className="space-y-4">
-                  <FormLabel className="text-base">Options</FormLabel>
+                  <p className="text-base font-medium leading-none">Options</p>
                   {fields.map((field, index) => (
                     <FormField
                       key={field.id}
