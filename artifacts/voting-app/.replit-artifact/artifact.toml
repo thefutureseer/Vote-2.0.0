@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Live Voting"
+version = "1.0.0"
+id = "artifacts/voting-app"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21200
+
+[services.development]
+run = "pnpm --filter @workspace/voting-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/voting-app", "run", "build" ]
+publicDir = "artifacts/voting-app/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21200"
+BASE_PATH = "/"
