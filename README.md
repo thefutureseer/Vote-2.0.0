@@ -1,4 +1,4 @@
-# PulseVote — Real-Time Voting Platform
+# PulseVote [codename: vote 2.0.0] — Real-Time Voting Platform
 
 PulseVote is a real-time polling app. Anyone can create a poll, share the link, and watch votes roll in live — results update instantly for every viewer via WebSockets, with no page refresh needed.
 
