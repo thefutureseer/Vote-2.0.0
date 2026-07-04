@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "HqhdF10PZgDwScvmhcfQ_"
+uri = "file://README.md"
+type = "text"
+title = "PulseVote README"
