@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "wouter";
-import { ArrowLeft, Loader2, Share2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Loader2, Share2, CheckCircle2, LogIn } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUser } from "@clerk/react";
 import { useGetPoll, useCastVote, getGetPollQueryKey, getListPollsQueryKey, getGetPollStatsQueryKey } from "@workspace/api-client-react";
 import type { Poll, PollOption } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout";
@@ -17,6 +18,7 @@ import { socket } from "@/lib/socket";
 export default function PollView() {
   const { pollId } = useParams<{ pollId: string }>();
   const { hasVoted, markVoted } = useVoted();
+  const { isSignedIn, isLoaded: isAuthLoaded } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -92,7 +94,25 @@ export default function PollView() {
           queryClient.invalidateQueries({ queryKey: getListPollsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetPollStatsQueryKey() });
         },
-        onError: () => {
+        onError: (err: any) => {
+          // 409 = server-side anti-cheat already recorded a vote from this
+          // account (e.g. on another device) — treat it like a completed vote.
+          if (err?.status === 409) {
+            markVoted(pollId);
+            toast({
+              title: "Already voted",
+              description: "This account has already voted on this poll.",
+            });
+            return;
+          }
+          if (err?.status === 429) {
+            toast({
+              title: "Slow down",
+              description: "Too many vote attempts. Please wait a moment and try again.",
+              variant: "destructive"
+            });
+            return;
+          }
           toast({
             title: "Error",
             description: "Failed to cast vote. Please try again.",
@@ -184,29 +204,47 @@ export default function PollView() {
                   {displayOptions.map((option) => (
                     <div 
                       key={option.id}
-                      className={`flex items-center space-x-3 space-y-0 rounded-lg border p-4 transition-all cursor-pointer ${
+                      className={`flex items-center space-x-3 space-y-0 rounded-lg border p-4 transition-all duration-200 cursor-pointer ${
                         selectedOption === option.id 
-                          ? 'border-primary bg-primary/5 ring-1 ring-primary/20' 
-                          : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30 shadow-md shadow-primary/10 scale-[1.01]' 
+                          : 'border-border hover:border-primary/50 hover:bg-muted/50 hover:scale-[1.005] active:scale-[0.995]'
                       }`}
                       onClick={() => setSelectedOption(option.id)}
+                      data-testid={`option-${option.id}`}
                     >
                       <RadioGroupItem value={option.id} id={option.id} className="mt-0.5" />
                       <Label htmlFor={option.id} className="flex-1 text-base font-medium cursor-pointer">
                         {option.text}
                       </Label>
+                      {selectedOption === option.id && (
+                        <CheckCircle2 className="w-5 h-5 text-primary animate-in zoom-in-50 duration-200" />
+                      )}
                     </div>
                   ))}
                 </RadioGroup>
-                
-                <Button 
-                  className="w-full h-12 text-lg font-semibold shadow-lg shadow-primary/20" 
-                  onClick={handleVote}
-                  disabled={!selectedOption || castVote.isPending}
-                  data-testid="button-cast-vote"
-                >
-                  {castVote.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Cast Vote"}
-                </Button>
+
+                {isAuthLoaded && !isSignedIn ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4 text-center text-sm text-muted-foreground">
+                      Sign in to cast your vote — one vote per account.
+                    </div>
+                    <Link href="/sign-in">
+                      <Button className="w-full h-12 text-lg font-semibold shadow-lg shadow-primary/20" data-testid="button-signin-to-vote">
+                        <LogIn className="w-5 h-5 mr-2" />
+                        Sign in to Vote
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <Button 
+                    className="w-full h-12 text-lg font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/40 disabled:hover:shadow-primary/20" 
+                    onClick={handleVote}
+                    disabled={!selectedOption || castVote.isPending}
+                    data-testid="button-cast-vote"
+                  >
+                    {castVote.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Cast Vote"}
+                  </Button>
+                )}
               </div>
             ) : (
               // RESULTS VIEW
@@ -226,13 +264,17 @@ export default function PollView() {
                       : 0;
                     
                     const isWinner = index === 0 && option.votes > 0;
+                    const isMyVote = option.id === selectedOption;
                     
                     return (
                       <div key={option.id} className="relative group">
                         <div className="flex justify-between items-end mb-2 relative z-10 px-1">
-                          <span className={`font-semibold ${isWinner ? 'text-primary text-lg' : 'text-foreground'}`}>
+                          <span className={`font-semibold flex items-center gap-1.5 ${isWinner ? 'text-primary text-lg' : 'text-foreground'}`}>
                             {option.text}
-                            {isWinner && <span className="ml-2 text-xs font-bold uppercase tracking-wider text-primary/70">Leading</span>}
+                            {isMyVote && (
+                              <CheckCircle2 className="w-4 h-4 text-primary" data-testid={`icon-your-vote-${option.id}`} />
+                            )}
+                            {isWinner && <span className="ml-1 text-xs font-bold uppercase tracking-wider text-primary/70">Leading</span>}
                           </span>
                           <div className="flex items-baseline gap-3">
                             <span className="text-sm font-mono text-muted-foreground">{option.votes} votes</span>
@@ -243,9 +285,11 @@ export default function PollView() {
                         </div>
                         <div className="h-4 w-full bg-muted/50 rounded-full overflow-hidden border border-border/50">
                           <div 
-                            className={`h-full transition-all duration-1000 ease-out ${
+                            className={`h-full rounded-full transition-[width] duration-1000 ease-out ${
                               isWinner 
                                 ? 'bg-primary shadow-[0_0_10px_rgba(0,180,216,0.5)]' 
+                                : isMyVote
+                                ? 'bg-primary/70'
                                 : 'bg-primary/40'
                             }`}
                             style={{ width: `${percentage}%` }}

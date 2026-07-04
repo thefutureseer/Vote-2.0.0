@@ -11,6 +11,16 @@ export interface IPoll extends Document {
   question: string;
   options: IPollOption[];
   totalVotes: number;
+  votedUserIds: string[];
+  createdAt: Date;
+}
+
+export interface IAlert extends Document {
+  type: string;
+  ip: string;
+  pollId?: string;
+  userId?: string;
+  message: string;
   createdAt: Date;
 }
 
@@ -27,10 +37,24 @@ const PollSchema = new Schema<IPoll>({
   question: { type: String, required: true },
   options: { type: [PollOptionSchema], required: true },
   totalVotes: { type: Number, default: 0 },
+  // Server-side source of truth for anti-cheat: Clerk user IDs that have
+  // already voted on this poll. Strictly blocks double-voting regardless
+  // of client-side (localStorage) state.
+  votedUserIds: { type: [String], default: [] },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const AlertSchema = new Schema<IAlert>({
+  type: { type: String, required: true },
+  ip: { type: String, required: true },
+  pollId: { type: String },
+  userId: { type: String },
+  message: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
 });
 
 export const PollModel = mongoose.model<IPoll>("Poll", PollSchema);
+export const AlertModel = mongoose.model<IAlert>("Alert", AlertSchema);
 
 export async function connectMongo(): Promise<void> {
   const uri = process.env.MONGODB_URI;

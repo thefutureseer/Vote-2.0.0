@@ -1,0 +1,2 @@
+- [express-rate-limit IPv6 key error](express-rate-limit-ipv6.md) — custom keyGenerator using req.ip must wrap it in `ipKeyGenerator()` or the server crashes on boot.
+- [Clerk GitHub SSO in dev](clerk-github-sso-dev.md) — GitHub/other custom OAuth providers need credentials only configurable in Production via the Auth pane; dev shared instance defaults to Google only.

@@ -1,8 +1,11 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { PollModel, toPollShape } from "../lib/db";
-import { enqueueVote } from "../lib/queue";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { getAuth, requireAuth } from "@clerk/express";
+import { PollModel, AlertModel, toPollShape } from "../lib/db";
+import { enqueueVote, hasPendingVote } from "../lib/queue";
 import { broadcastVoteUpdate } from "../lib/socketio";
+import { logger } from "../lib/logger";
 import {
   ListPollsResponse,
   CreatePollBody,
@@ -15,6 +18,31 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+// 3 votes/minute per IP. On rejection, log a "ballot-stuffing" style alert
+// to MongoDB instead of silently dropping the request.
+const voteRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req, res) => ipKeyGenerator(req.ip ?? "unknown"),
+  handler: async (req, res): Promise<void> => {
+    const pollId = String(req.params.pollId);
+    try {
+      await AlertModel.create({
+        type: "rate_limit_exceeded",
+        ip: req.ip ?? "unknown",
+        pollId,
+        userId: getAuth(req)?.userId ?? undefined,
+        message: `Vote rate limit exceeded for poll ${pollId}`,
+      });
+    } catch (err) {
+      logger.error({ err }, "Failed to write rate-limit alert to MongoDB");
+    }
+    res.status(429).json({ error: "Too many vote attempts. Please slow down." });
+  },
+});
 
 router.get("/polls", async (_req, res): Promise<void> => {
   const polls = await PollModel.find().sort({ createdAt: -1 }).lean();
@@ -93,44 +121,62 @@ router.delete("/polls/:pollId", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.post("/polls/:pollId/votes", async (req, res): Promise<void> => {
-  const params = CastVoteParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
+router.post(
+  "/polls/:pollId/votes",
+  voteRateLimiter,
+  requireAuth(),
+  async (req, res): Promise<void> => {
+    const params = CastVoteParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
 
-  const body = CastVoteBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
+    const body = CastVoteBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
 
-  const { pollId } = params.data;
-  const { optionId } = body.data;
+    const { pollId } = params.data;
+    const { optionId } = body.data;
 
-  const poll = await PollModel.findById(pollId);
-  if (!poll) {
-    res.status(404).json({ error: "Poll not found" });
-    return;
-  }
+    const { userId } = getAuth(req);
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required to vote" });
+      return;
+    }
 
-  const validOption = poll.options.some((o) => o.id === optionId);
-  if (!validOption) {
-    res.status(400).json({ error: "Invalid option ID" });
-    return;
-  }
+    const poll = await PollModel.findById(pollId);
+    if (!poll) {
+      res.status(404).json({ error: "Poll not found" });
+      return;
+    }
 
-  enqueueVote(pollId, optionId);
+    const validOption = poll.options.some((o) => o.id === optionId);
+    if (!validOption) {
+      res.status(400).json({ error: "Invalid option ID" });
+      return;
+    }
 
-  const optimisticOptions = poll.options.map((o) => ({
-    id: o.id,
-    text: o.text,
-    votes: o.id === optionId ? o.votes + 1 : o.votes,
-  }));
-  broadcastVoteUpdate(pollId, optimisticOptions, poll.totalVotes + 1);
+    // Strict server-side anti-cheat: block if this Clerk user ID has
+    // already voted (persisted) or has a vote in flight in the queue.
+    if (poll.votedUserIds.includes(userId) || hasPendingVote(pollId, userId)) {
+      res.status(409).json({ error: "You have already voted on this poll" });
+      return;
+    }
 
-  res.status(202).json({ message: "Vote accepted", queued: true });
-});
+    enqueueVote(pollId, optionId, userId);
+
+    const optimisticOptions = poll.options.map((o) => ({
+      id: o.id,
+      text: o.text,
+      votes: o.id === optionId ? o.votes + 1 : o.votes,
+    }));
+    broadcastVoteUpdate(pollId, optimisticOptions, poll.totalVotes + 1);
+
+    res.status(202).json({ message: "Vote accepted", queued: true });
+  },
+);
 
 export default router;
