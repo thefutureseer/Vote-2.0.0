@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "wouter";
-import { ArrowLeft, Loader2, Share2, CheckCircle2, LogIn } from "lucide-react";
+import { ArrowLeft, Loader2, Share2, CheckCircle2, LogIn, UserRound } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@clerk/react";
 import { useGetPoll, useCastVote, getGetPollQueryKey, getListPollsQueryKey, getGetPollStatsQueryKey } from "@workspace/api-client-react";
@@ -13,12 +13,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useVoted } from "@/hooks/use-voted";
+import { useGuestAuth } from "@/hooks/use-guest-auth";
 import { socket } from "@/lib/socket";
 
 export default function PollView() {
   const { pollId } = useParams<{ pollId: string }>();
   const { hasVoted, markVoted } = useVoted();
   const { isSignedIn, isLoaded: isAuthLoaded } = useUser();
+  const { isGuest, guestId, signInAsGuest } = useGuestAuth();
+  const canVote = isSignedIn || isGuest;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -70,7 +73,11 @@ export default function PollView() {
     };
   }, [pollId]);
 
-  const castVote = useCastVote();
+  const castVote = useCastVote(
+    !isSignedIn && guestId
+      ? { request: { headers: { "X-Demo-User-Id": guestId } } }
+      : undefined,
+  );
 
   const handleVote = () => {
     if (!selectedOption) {
@@ -223,7 +230,7 @@ export default function PollView() {
                   ))}
                 </RadioGroup>
 
-                {isAuthLoaded && !isSignedIn ? (
+                {isAuthLoaded && !canVote ? (
                   <div className="space-y-3">
                     <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4 text-center text-sm text-muted-foreground">
                       Sign in to cast your vote — one vote per account.
@@ -234,6 +241,15 @@ export default function PollView() {
                         Sign in to Vote
                       </Button>
                     </Link>
+                    <Button
+                      variant="outline"
+                      className="w-full h-11 border-white/10 hover:bg-white/5"
+                      onClick={() => signInAsGuest()}
+                      data-testid="button-vote-as-guest"
+                    >
+                      <UserRound className="w-4 h-4 mr-2" />
+                      Explore as Demo User
+                    </Button>
                   </div>
                 ) : (
                   <Button 

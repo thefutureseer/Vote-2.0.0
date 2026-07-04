@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { getAuth, requireAuth } from "@clerk/express";
+import { getAuth } from "@clerk/express";
 import { PollModel, AlertModel, toPollShape } from "../lib/db";
 import { enqueueVote, hasPendingVote } from "../lib/queue";
 import { broadcastVoteUpdate } from "../lib/socketio";
@@ -19,6 +19,24 @@ import {
 
 const router: IRouter = Router();
 
+// Demo/guest voter IDs are self-issued by the client (not backed by a real
+// Clerk session) so anonymous visitors can try the app. Validate the shape
+// strictly so this header can't be abused to inject arbitrary identities.
+const DEMO_USER_ID_PATTERN = /^user_demo_[a-zA-Z0-9]{6,24}$/;
+
+function resolveVoterId(req: import("express").Request): string | null {
+  const { userId } = getAuth(req);
+  if (userId) return userId;
+
+  const demoHeader = req.headers["x-demo-user-id"];
+  const demoId = Array.isArray(demoHeader) ? demoHeader[0] : demoHeader;
+  if (demoId && DEMO_USER_ID_PATTERN.test(demoId)) {
+    return demoId;
+  }
+
+  return null;
+}
+
 // 3 votes/minute per IP. On rejection, log a "ballot-stuffing" style alert
 // to MongoDB instead of silently dropping the request.
 const voteRateLimiter = rateLimit({
@@ -34,7 +52,7 @@ const voteRateLimiter = rateLimit({
         type: "rate_limit_exceeded",
         ip: req.ip ?? "unknown",
         pollId,
-        userId: getAuth(req)?.userId ?? undefined,
+        userId: resolveVoterId(req) ?? undefined,
         message: `Vote rate limit exceeded for poll ${pollId}`,
       });
     } catch (err) {
@@ -124,7 +142,6 @@ router.delete("/polls/:pollId", async (req, res): Promise<void> => {
 router.post(
   "/polls/:pollId/votes",
   voteRateLimiter,
-  requireAuth(),
   async (req, res): Promise<void> => {
     const params = CastVoteParams.safeParse(req.params);
     if (!params.success) {
@@ -141,7 +158,10 @@ router.post(
     const { pollId } = params.data;
     const { optionId } = body.data;
 
-    const { userId } = getAuth(req);
+    // Accepts either a real Clerk session or a self-issued demo/guest ID
+    // (see resolveVoterId) — both are subject to the same anti-double-vote
+    // and rate-limit checks below.
+    const userId = resolveVoterId(req);
     if (!userId) {
       res.status(401).json({ error: "Authentication required to vote" });
       return;

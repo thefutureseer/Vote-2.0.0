@@ -1,12 +1,23 @@
+import { useEffect } from "react";
 import { Link } from "wouter";
-import { Activity, LogIn, LogOut, User } from "lucide-react";
+import { Activity, LogIn, LogOut, User, UserRound } from "lucide-react";
 import { useUser, useClerk } from "@clerk/react";
 import { Button } from "@/components/ui/button";
+import { useGuestAuth } from "@/hooks/use-guest-auth";
 
 function AuthControl() {
   const { user, isLoaded, isSignedIn } = useUser();
   const { signOut } = useClerk();
+  const { isGuest, signOutGuest } = useGuestAuth();
   const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  // A real Clerk sign-in always takes precedence over a leftover demo
+  // session, so drop the demo identity once a genuine session exists.
+  useEffect(() => {
+    if (isSignedIn && isGuest) {
+      signOutGuest();
+    }
+  }, [isSignedIn, isGuest, signOutGuest]);
 
   if (!isLoaded) {
     return <div className="h-9 w-24 rounded-md bg-muted/50 animate-pulse" />;
@@ -33,6 +44,30 @@ function AuthControl() {
         >
           <LogOut className="w-4 h-4 mr-1.5" />
           Log out
+        </Button>
+      </div>
+    );
+  }
+
+  if (isGuest) {
+    return (
+      <div className="flex items-center gap-3">
+        <div
+          className="hidden sm:flex items-center gap-2 text-sm text-amber-400 bg-amber-400/10 px-3 py-1.5 rounded-full"
+          data-testid="text-guest-user"
+        >
+          <UserRound className="w-3.5 h-3.5" />
+          <span>Demo User</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={signOutGuest}
+          className="text-muted-foreground hover:text-destructive"
+          data-testid="button-exit-demo"
+        >
+          <LogOut className="w-4 h-4 mr-1.5" />
+          Exit demo
         </Button>
       </div>
     );

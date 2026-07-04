@@ -4,8 +4,11 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { ClerkProvider, SignIn, SignUp, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
+import { UserRound } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { useGuestAuth } from "@/hooks/use-guest-auth";
 import Home from "@/pages/home";
 import CreatePoll from "@/pages/create-poll";
 import PollView from "@/pages/poll-view";
@@ -90,9 +93,31 @@ const clerkAppearance = {
 };
 
 function SignInPage() {
+  const [, setLocation] = useLocation();
+  const { signInAsGuest } = useGuestAuth();
+
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 dark">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-background px-4 dark">
       <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
+
+      <div className="flex w-[440px] max-w-full items-center gap-3 px-2 text-xs text-muted-foreground">
+        <div className="h-px flex-1 bg-white/10" />
+        or
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <Button
+        variant="outline"
+        className="h-11 w-[440px] max-w-full border-white/10 text-foreground hover:bg-white/5"
+        onClick={() => {
+          signInAsGuest();
+          setLocation("/");
+        }}
+        data-testid="button-guest-login"
+      >
+        <UserRound className="mr-2 h-4 w-4" />
+        Explore as Demo User
+      </Button>
     </div>
   );
 }
