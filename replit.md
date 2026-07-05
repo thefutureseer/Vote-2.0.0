@@ -1,28 +1,33 @@
-# [Project name]
+# Live Pulse (PulseVote)
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A real-time voting app: users create polls, vote once per identity (Clerk account or guest/demo mode), and watch results update live via Socket.IO.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server
+- `pnpm --filter @workspace/voting-app run dev` — run the voting app frontend
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm run test` — run unit tests (Vitest) across packages
+- `pnpm --filter @workspace/scripts run load-test` — HTTP load test (read + vote-cast endpoints)
+- `pnpm --filter @workspace/scripts run vote-race-test` — concurrency test for the double-vote guard and vote-counting accuracy
+- Required env/secrets: `MONGODB_URI`, `SESSION_SECRET`, `VOTE_HASH_SALT`
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- API: Express, MongoDB (Mongoose), Socket.IO for live vote updates
+- Frontend: React + Vite, wouter, TanStack Query, react-hook-form + Zod, Clerk for auth
+- Validation: Zod
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Testing: Vitest (unit), autocannon-based custom scripts (load/concurrency), Playwright via the `testing` skill's `runTest()` (E2E)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server` — Express API, MongoDB models, vote hashing/queueing logic
+- `artifacts/voting-app` — React frontend (home/poll-list, create-poll, poll-view pages)
+- `scripts/src/load-test.ts`, `scripts/src/vote-race-test.ts` — load and concurrency test scripts for the vote pipeline
 
 ## Architecture decisions
 
@@ -32,7 +37,10 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Create a poll with a question and 2–10 options.
+- Vote once per identity — either a signed-in Clerk account or a lightweight "guest/demo" identity stored in the browser.
+- Watch results update live (Socket.IO) as votes come in, with a home page showing recent polls and aggregate stats (total polls, total votes, most active poll).
+- Double-voting (from the same account/guest identity, even across devices/browsers) is blocked server-side and surfaced in the UI as a friendly "Already voted" state rather than an error.
 
 ## User preferences
 
@@ -40,7 +48,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The vote-cast rate limiter is keyed by IP only (not IP+poll), so its budget (3/min) is shared across every poll a visitor touches, not per-poll.
+- Rate-limit/security alert logs intentionally store the raw IP, pollId, and userId (unhashed) — do not anonymize these, unlike `votedUserIds` on a Poll.
+- Always run `pnpm run typecheck` and `pnpm run test` after backend changes to the vote pipeline; use `pnpm --filter @workspace/scripts run vote-race-test` to re-verify the double-vote guard under real concurrency after touching `queue.ts`, `polls.ts`, or `voteHash.ts`.
 
 ## Pointers
 
