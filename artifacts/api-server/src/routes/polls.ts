@@ -6,6 +6,7 @@ import { PollModel, AlertModel, toPollShape } from "../lib/db";
 import { enqueueVote, hasPendingVote } from "../lib/queue";
 import { broadcastVoteUpdate } from "../lib/socketio";
 import { logger } from "../lib/logger";
+import { hashVoterId } from "../lib/voteHash";
 import {
   ListPollsResponse,
   CreatePollBody,
@@ -179,10 +180,14 @@ router.post(
       return;
     }
 
-    // Strict server-side anti-cheat: block if this Clerk user ID has
-    // already voted (persisted) or has a vote in flight in the queue.
-    if (poll.votedUserIds.includes(userId) || hasPendingVote(pollId, userId)) {
-      res.status(409).json({ error: "You have already voted on this poll" });
+    // Strict server-side anti-cheat: the persisted `votedUserIds` array only
+    // ever contains anonymized hashes (see queue.ts), never raw identities,
+    // so we hash the resolved voter ID the same way before comparing. The
+    // in-flight (not-yet-flushed) check still uses the raw ID purely as an
+    // in-memory key — it is never persisted.
+    const voterHash = hashVoterId(userId);
+    if (poll.votedUserIds.includes(voterHash) || hasPendingVote(pollId, userId)) {
+      res.status(403).json({ error: "Double-voting detected: this voter has already cast a ballot on this poll" });
       return;
     }
 

@@ -26,7 +26,9 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Voter identity anonymization: `votedUserIds` on a Poll never stores a raw Clerk/demo user ID. `artifacts/api-server/src/lib/voteHash.ts` HMAC-SHA256-hashes every voter ID (using the `VOTE_HASH_SALT` secret) right at the point it's persisted (queue.ts's batch flush) and right at the point it's checked (polls.ts's double-vote guard). This keeps the anti-cheat check 100% accurate while making the stored value non-reversible to a real identity.
+- Double-voting on `/api/polls/:pollId/votes` returns **403** (not 409) — "Double-voting detected" — to reflect the hashed-identity check. The frontend (`poll-view.tsx`) treats 403 as "already voted" and shows the same friendly UX as a fresh vote.
+- Guest/demo voters authenticate via a custom `X-Demo-User-Id` header (not `Authorization: Bearer`) so Clerk's own JWT parsing on that header is never triggered by a fake token. See `.agents/memory/clerk-guest-auth.md`.
 
 ## Product
 

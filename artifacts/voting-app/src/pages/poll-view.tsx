@@ -102,9 +102,10 @@ export default function PollView() {
           queryClient.invalidateQueries({ queryKey: getGetPollStatsQueryKey() });
         },
         onError: (err: any) => {
-          // 409 = server-side anti-cheat already recorded a vote from this
-          // account (e.g. on another device) — treat it like a completed vote.
-          if (err?.status === 409) {
+          // 403 = server-side anti-cheat (hashed voter-ID check) already
+          // recorded a vote from this account (e.g. on another device) —
+          // treat it like a completed vote.
+          if (err?.status === 403) {
             markVoted(pollId);
             toast({
               title: "Already voted",

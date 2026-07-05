@@ -1,6 +1,7 @@
 import { PollModel } from "./db";
 import { broadcastVoteUpdate } from "./socketio";
 import { logger } from "./logger";
+import { hashVoterId } from "./voteHash";
 import type { AnyBulkWriteOperation } from "mongoose";
 import type { IPoll } from "./db";
 
@@ -60,7 +61,12 @@ async function flushQueue(): Promise<void> {
       inc.totalVotes = (inc.totalVotes ?? 0) + count;
     }
 
+    // Anonymize every voter identity right at the database boundary: the raw
+    // Clerk/demo user ID is only ever used in-memory (for the pending-vote
+    // dedupe check); what actually gets persisted is a one-way HMAC-SHA256
+    // hash, so `votedUserIds` in MongoDB never contains a reversible identity.
     const userIds = Array.from(pollUserIds.get(pollId) ?? []);
+    const hashedUserIds = userIds.map(hashVoterId);
     const arrayFilters = Array.from(optMap.keys()).map((optionId) => ({
       [`opt${optionId.replace(/[^a-zA-Z0-9]/g, "")}.id`]: optionId,
     }));
@@ -70,7 +76,7 @@ async function flushQueue(): Promise<void> {
         filter: { _id: pollId },
         update: {
           $inc: inc,
-          $push: { votedUserIds: { $each: userIds } },
+          $push: { votedUserIds: { $each: hashedUserIds } },
         },
         arrayFilters,
       },
